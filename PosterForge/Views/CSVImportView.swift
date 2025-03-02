@@ -1,3 +1,6 @@
+// ========================================
+// File: CSVImportView.swift
+// ========================================
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -51,7 +54,6 @@ struct CSVImportView: View {
             ) { result in
                 handleFileImport(result: result)
             }
-            // Foglio di selezione "manuale"
             .sheet(isPresented: $showingManualSheet, content: {
                 manualSelectionSheet()
             })
@@ -64,7 +66,7 @@ struct CSVImportView: View {
             guard let url = urls.first else { return }
             importCSV(from: url)
         case .failure(let error):
-            print("Errore selezione file: \(error)")
+            print("ERRORE selezione file CSV:", error.localizedDescription)
         }
     }
 
@@ -120,12 +122,10 @@ struct CSVImportView: View {
 
         let mode = preferencesManager.preferences.posterSelectionMode
         if mode == "automatic" {
-            // Comportamento classico
             Task {
                 await importAutomatically(movies: movies)
             }
         } else {
-            // Manuale: popoliamo pendingMovies e avviamo la selezione step by step
             self.pendingMovies = movies
             self.currentIndex = 0
             showNextManualStep()
@@ -136,48 +136,43 @@ struct CSVImportView: View {
     private func importAutomatically(movies: [MovieModel]) async {
         progressText = "Inizio import automatico (\(movies.count) film)..."
         isProcessing = true
-        let userPref = preferencesManager.preferences
 
         var processedCount = 0
         for m in movies {
             let yearInt = Int(m.year).flatMap { $0 == 0 ? nil : $0 }
-            let group = DispatchGroup()
-            var chosenPoster: UIImage?
-            group.enter()
-
-            TMDbService.shared.search(query: m.title, isTV: m.isTV, year: yearInt) { results in
-                if let firstResult = results.first {
-                    TMDbService.shared.fetchPosters(
-                        itemID: firstResult.id,
-                        isTV: m.isTV,
-                        languagePref: userPref.preferredLanguage
-                    ) { posterInfos in
-                        if let firstPoster = posterInfos.first {
-                            TMDbService.shared.downloadPoster(path: firstPoster.file_path) { img in
-                                chosenPoster = img
-                                group.leave()
-                            }
-                        } else {
-                            group.leave()
-                        }
-                    }
-                } else {
-                    group.leave()
-                }
-            }
-
-            group.wait()
-
-            if let basePoster = chosenPoster {
-                let item = PosterItem(
-                    id: UUID(),
-                    movie: m,
-                    uiImage: basePoster,
-                    timestamp: Date(),
-                    imageFilename: nil
+            do {
+                let results = try await TMDbService.shared.search(
+                    query: m.title,
+                    mediaType: m.isTV ? .tv : .movie,
+                    year: yearInt
                 )
-                libraryVM.addPoster(item)
+
+                if let firstResult = results.first {
+                    let imagesResponse = try await TMDbService.shared.fetchImages(
+                        for: firstResult.id,
+                        mediaType: m.isTV ? .tv : .movie
+                    )
+
+                    if let firstPoster = imagesResponse.posters.first,
+                       let image = try await TMDbService.shared.downloadImage(path: firstPoster.file_path) {
+
+                        let item = PosterItem(
+                            id: UUID(),
+                            movie: m,
+                            uiImage: image,
+                            timestamp: Date(),
+                            imageFilename: nil
+                        )
+                        libraryVM.addPoster(item)
+                    }
+                }
+
+            } catch {
+                // Se fallisce la ricerca o il download, lo skippo.
+                // Possiamo stampare un log di errore o ignorare
+                print("Errore (import automatico) su \"\(m.title)\": \(error.localizedDescription)")
             }
+
             processedCount += 1
             progressText = "Generati \(processedCount) / \(movies.count)"
         }
@@ -187,64 +182,61 @@ struct CSVImportView: View {
     }
 
     // MARK: - Import Manuale
-    // Step by step. Scarichiamo i poster per pendingMovies[currentIndex], mostriamo la sheet, l'utente sceglie
     private func showNextManualStep() {
         guard currentIndex < pendingMovies.count else {
-            // Finito
             progressText = "Import manuale completato!"
             isProcessing = false
             return
         }
+
         isProcessing = true
         progressText = "Ricerca poster per \(pendingMovies[currentIndex].title)..."
 
         let m = pendingMovies[currentIndex]
-        let userPref = preferencesManager.preferences
         let yearInt = Int(m.year).flatMap { $0 == 0 ? nil : $0 }
 
-        // Ricerca
-        TMDbService.shared.search(query: m.title, isTV: m.isTV, year: yearInt) { results in
-            if let firstResult = results.first {
-                TMDbService.shared.fetchPosters(
-                    itemID: firstResult.id,
-                    isTV: m.isTV,
-                    languagePref: userPref.preferredLanguage
-                ) { posterInfos in
-                    if posterInfos.isEmpty {
-                        // Nessun poster, passiamo al prossimo
-                        self.finishCurrentMovie(nil)
-                        return
-                    }
-                    // Scarichiamo i primi max 15
-                    let subset = Array(posterInfos.prefix(15))
-                    self.downloadImages(for: subset, movie: m)
+        Task {
+            do {
+                let results = try await TMDbService.shared.search(
+                    query: m.title,
+                    mediaType: m.isTV ? .tv : .movie,
+                    year: yearInt
+                )
+
+                if let firstResult = results.first {
+                    let imagesResponse = try await TMDbService.shared.fetchImages(
+                        for: firstResult.id,
+                        mediaType: m.isTV ? .tv : .movie
+                    )
+                    let posters = imagesResponse.posters.prefix(15)
+                    await downloadImages(for: Array(posters))
+                } else {
+                    finishCurrentMovie(nil)
                 }
-            } else {
-                // Nessun result TMDb
-                self.finishCurrentMovie(nil)
+            } catch {
+                finishCurrentMovie(nil)
             }
         }
     }
 
-    private func downloadImages(for posters: [TMDbImageInfo], movie: MovieModel) {
+    private func downloadImages(for posters: [TMDbService.TMDbImageInfo]) async {
         var images: [UIImage] = []
-        let group = DispatchGroup()
 
-        for p in posters {
-            group.enter()
-            TMDbService.shared.downloadPoster(path: p.file_path) { img in
-                if let i = img {
-                    images.append(i)
+        for poster in posters {
+            do {
+                if let image = try await TMDbService.shared.downloadImage(path: poster.file_path) {
+                    images.append(image)
                 }
-                group.leave()
+            } catch {
+                // Se vuoi puoi stampare log
             }
         }
 
-        group.notify(queue: .main) {
-            self.posterImages = images
-            self.isProcessing = false
-            self.progressText = "Seleziona poster per \(movie.title)"
-            self.showingManualSheet = true
+        await MainActor.run {
+            posterImages = images
+            isProcessing = false
+            progressText = "Seleziona poster per \(pendingMovies[currentIndex].title)"
+            showingManualSheet = true
         }
     }
 
@@ -259,8 +251,7 @@ struct CSVImportView: View {
                 Text("Nessuna locandina trovata.")
                     .padding()
                 Button("Avanti") {
-                    // Fine step
-                    self.showingManualSheet = false
+                    showingManualSheet = false
                     finishCurrentMovie(nil)
                 }
             } else {
@@ -269,8 +260,7 @@ struct CSVImportView: View {
                         ForEach(0 ..< posterImages.count, id: \.self) { i in
                             Button {
                                 chosenPoster = posterImages[i]
-                                // Fine step
-                                self.showingManualSheet = false
+                                showingManualSheet = false
                                 finishCurrentMovie(chosenPoster)
                             } label: {
                                 Image(uiImage: posterImages[i])
@@ -286,7 +276,6 @@ struct CSVImportView: View {
     }
 
     private func finishCurrentMovie(_ poster: UIImage?) {
-        // Salviamo
         let m = pendingMovies[currentIndex]
         if let p = poster {
             let item = PosterItem(
@@ -301,7 +290,6 @@ struct CSVImportView: View {
 
         currentIndex += 1
         if currentIndex < pendingMovies.count {
-            // Passiamo al film successivo
             showNextManualStep()
         } else {
             progressText = "Import manuale completato!"

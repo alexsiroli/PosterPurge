@@ -1,3 +1,6 @@
+import SwiftUI
+import UIKit
+
 struct AsyncImageLoader: View {
     let url: URL?
     let placeholder: Image
@@ -18,11 +21,10 @@ struct AsyncImageLoader: View {
             }
         }
         .onAppear(perform: loadImage)
-        .onChange(of: url) { _ in loadImage() }
     }
     
     private func loadImage() {
-        guard let url = url, image == nil else { return }
+        guard let url = url else { return }
         
         isLoading = true
         URLSession.shared.dataTask(with: url) { data, _, error in

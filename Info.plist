@@ -10,7 +10,7 @@
     <string>PosterForge</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
-    <key>UILaunchStoryboardName</key>
+    <key>UILaunchScreen</key>
     <string>LaunchScreen</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Questa app deve salvare i poster sul tuo rullino fotografico.</string>

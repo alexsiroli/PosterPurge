@@ -1,144 +1,311 @@
 // ========================================
 // File: TMDbService.swift
 // ========================================
-import SwiftUI
+import Foundation
+import os.log
+import UIKit
 
 class TMDbService {
     static let shared = TMDbService()
-
-    // Sostituisci con la tua vera API Key
+    
     private let apiKey = "8e7466051f04487c6a8248672c859497"
-
-    private let session = URLSession.shared
-
-    /// Ricerca un film (o serie TV) su TMDb
-    func search(query: String, isTV: Bool, year: Int? = nil, completion: @escaping ([TMDbSearchResult]) -> Void) {
-        let baseURL = "https://api.themoviedb.org/3/search/"
-        let endpoint = isTV ? "tv" : "movie"
-
-        var urlString = "\(baseURL)\(endpoint)?api_key=\(apiKey)&query=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
-        if let y = year {
-            if isTV {
-                urlString += "&first_air_date_year=\(y)"
-            } else {
-                urlString += "&year=\(y)"
+    private let baseURL = "https://api.themoviedb.org/3/"
+    private let imageBaseURL = "https://image.tmdb.org/t/p/"
+    private let session: URLSession
+    private let logger = Logger(subsystem: "com.yourapp.PosterForge", category: "Network")
+    
+    // Cache per le immagini
+    private let imageCache = NSCache<NSString, UIImage>()
+    
+    init(configuration: URLSessionConfiguration = .default) {
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        configuration.urlCache = URLCache.shared
+        self.session = URLSession(configuration: configuration)
+    }
+    
+    // MARK: - Modelli dati
+    struct TMDbSearchResponse: Codable {
+        let page: Int
+        let results: [TMDbSearchResult]
+        let total_pages: Int
+        let total_results: Int
+    }
+    
+    struct TMDbSearchResult: Codable, Identifiable {
+        let id: Int
+        let media_type: String?
+        let title: String?
+        let name: String?
+        let poster_path: String?
+        let backdrop_path: String?
+        let release_date: String?
+        let first_air_date: String?
+        let vote_average: Double?
+        let overview: String?
+        
+        var displayTitle: String {
+            return title ?? name ?? "Unknown Title"
+        }
+        
+        var releaseYear: String {
+            let dateString = release_date ?? first_air_date ?? ""
+            return String(dateString.prefix(4))
+        }
+    }
+    
+    struct TMDbImagesResponse: Codable {
+        let posters: [TMDbImageInfo]
+        let backdrops: [TMDbImageInfo]
+    }
+    
+    struct TMDbImageInfo: Codable, Identifiable {
+        // Creiamo un id fittizio per conformità a Identifiable
+        var id: String { file_path }
+        
+        let file_path: String
+        let width: Int
+        let height: Int
+        let iso_639_1: String?
+        let aspect_ratio: Double
+        let vote_average: Double
+        let vote_count: Int
+        
+        var url: URL? {
+            URL(string: "\(TMDbService.shared.imageBaseURL)original\(file_path)")
+        }
+    }
+    
+    enum MediaType: String {
+        case movie
+        case tv
+    }
+    
+    enum ImageSize: String {
+        case small = "w342"
+        case medium = "w500"
+        case large = "original"
+    }
+    
+    enum TMDbError: Error, LocalizedError {
+        case invalidURL
+        case invalidResponse
+        case statusCode(Int)
+        case decodingError
+        case imageDownloadFailed
+        case invalidData
+        
+        var errorDescription: String? {
+            switch self {
+            case .invalidURL: return "URL non valida"
+            case .invalidResponse: return "Risposta del server non valida"
+            case .statusCode(let code): return "Errore server: \(code)"
+            case .decodingError: return "Errore nell'elaborazione dei dati"
+            case .imageDownloadFailed: return "Download immagine fallito"
+            case .invalidData: return "Dati ricevuti non validi"
             }
         }
-        guard let url = URL(string: urlString) else {
-            DispatchQueue.main.async {
-                completion([])
-            }
+    }
+    
+    // MARK: - Funzioni di ricerca (callback)
+    func search(
+        query: String,
+        mediaType: MediaType,
+        year: Int? = nil,
+        page: Int = 1,
+        language: String = "it-IT",
+        completion: @escaping (Result<[TMDbSearchResult], Error>) -> Void
+    ) {
+        let endpoint: String
+        switch mediaType {
+        case .movie:
+            endpoint = "search/movie"
+        case .tv:
+            endpoint = "search/tv"
+        }
+        
+        var components = URLComponents(string: "\(baseURL)\(endpoint)")!
+        var queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey),
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "language", value: language),
+            URLQueryItem(name: "page", value: "\(page)")
+        ]
+        
+        if let year = year {
+            queryItems.append(
+                URLQueryItem(
+                    name: mediaType == .movie ? "year" : "first_air_date_year",
+                    value: "\(year)"
+                )
+            )
+        }
+        
+        components.queryItems = queryItems
+        
+        guard let url = components.url else {
+            completion(.failure(TMDbError.invalidURL))
             return
         }
-
+        
+        performRequest(url: url) { (result: Result<TMDbSearchResponse, Error>) in
+            switch result {
+            case .success(let response):
+                completion(.success(response.results))
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+    
+    // MARK: - Fetch dettagli immagini (callback)
+    func fetchImages(
+        for mediaId: Int,
+        mediaType: MediaType,
+        language: String? = nil,
+        completion: @escaping (Result<TMDbImagesResponse, Error>) -> Void
+    ) {
+        let endpoint = "\(mediaType.rawValue)/\(mediaId)/images"
+        var components = URLComponents(string: "\(baseURL)\(endpoint)")!
+        
+        // Lingue
+        var qItems = [
+            URLQueryItem(name: "api_key", value: apiKey),
+            // forziamo "null" come prima preferenza, poi it, poi en
+            URLQueryItem(name: "include_image_language", value: "null,it,en")
+        ]
+        
+        if let language = language {
+            qItems.append(URLQueryItem(name: "language", value: language))
+        }
+        
+        components.queryItems = qItems
+        
+        guard let url = components.url else {
+            completion(.failure(TMDbError.invalidURL))
+            return
+        }
+        
+        performRequest(url: url, completion: completion)
+    }
+    
+    // MARK: - Download immagini (callback)
+    func downloadImage(
+        path: String,
+        size: ImageSize = .large,
+        completion: @escaping (Result<UIImage, Error>) -> Void
+    ) {
+        let urlString = "\(imageBaseURL)\(size.rawValue)\(path)"
+        
+        guard let url = URL(string: urlString) else {
+            completion(.failure(TMDbError.invalidURL))
+            return
+        }
+        
+        // Cache
+        if let cachedImage = imageCache.object(forKey: url.absoluteString as NSString) {
+            completion(.success(cachedImage))
+            return
+        }
+        
         session.dataTask(with: url) { data, response, error in
-            guard let data = data, error == nil else {
-                DispatchQueue.main.async { completion([]) }
+            if let error = error {
+                completion(.failure(error))
                 return
             }
-            do {
-                let decoded = try JSONDecoder().decode(TMDbSearchResponse.self, from: data)
+            
+            guard let data = data, let image = UIImage(data: data) else {
+                completion(.failure(TMDbError.imageDownloadFailed))
+                return
+            }
+            
+            self.imageCache.setObject(image, forKey: url.absoluteString as NSString)
+            completion(.success(image))
+        }.resume()
+    }
+    
+    // MARK: - Funzioni Async/Await
+    @available(iOS 13.0, *)
+    func search(
+        query: String,
+        mediaType: MediaType,
+        year: Int? = nil,
+        page: Int = 1,
+        language: String = "it-IT"
+    ) async throws -> [TMDbSearchResult] {
+        try await withCheckedThrowingContinuation { continuation in
+            search(query: query, mediaType: mediaType, year: year, page: page, language: language) { result in
+                continuation.resume(with: result)
+            }
+        }
+    }
+    
+    @available(iOS 13.0, *)
+    func fetchImages(
+        for mediaId: Int,
+        mediaType: MediaType,
+        language: String? = nil
+    ) async throws -> TMDbImagesResponse {
+        try await withCheckedThrowingContinuation { continuation in
+            fetchImages(for: mediaId, mediaType: mediaType, language: language) { result in
+                continuation.resume(with: result)
+            }
+        }
+    }
+    
+    @available(iOS 13.0, *)
+    func downloadImage(path: String, size: ImageSize = .large) async throws -> UIImage? {
+        try await withCheckedThrowingContinuation { continuation in
+            downloadImage(path: path, size: size) { result in
+                continuation.resume(with: result)
+            }
+        }
+    }
+    
+    // MARK: - Funzione generica per le richieste
+    private func performRequest<T: Decodable>(
+        url: URL,
+        completion: @escaping (Result<T, Error>) -> Void
+    ) {
+        session.dataTask(with: url) { data, response, error in
+            if let error = error {
                 DispatchQueue.main.async {
-                    completion(decoded.results)
+                    completion(.failure(error))
+                }
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                DispatchQueue.main.async {
+                    completion(.failure(TMDbError.invalidResponse))
+                }
+                return
+            }
+            
+            guard (200...299).contains(httpResponse.statusCode) else {
+                DispatchQueue.main.async {
+                    completion(.failure(TMDbError.statusCode(httpResponse.statusCode)))
+                }
+                return
+            }
+            
+            guard let data = data else {
+                DispatchQueue.main.async {
+                    completion(.failure(TMDbError.invalidData))
+                }
+                return
+            }
+            
+            do {
+                let decoded = try JSONDecoder().decode(T.self, from: data)
+                DispatchQueue.main.async {
+                    completion(.success(decoded))
                 }
             } catch {
+                self.logger.error("Decoding error: \(error.localizedDescription)")
                 DispatchQueue.main.async {
-                    completion([])
+                    completion(.failure(TMDbError.decodingError))
                 }
             }
         }.resume()
     }
-
-    /// Ottiene la lista di poster di un film/serie
-    func fetchPosters(itemID: Int, isTV: Bool, languagePref: String? = nil, completion: @escaping ([TMDbImageInfo]) -> Void) {
-        let baseURL = "https://api.themoviedb.org/3/"
-        let endpoint = isTV ? "tv" : "movie"
-
-        var includeLangParam = ""
-        if let lp = languagePref {
-            switch lp {
-            case "none":
-                includeLangParam = "&include_image_language=null,it,en"
-            case "it":
-                includeLangParam = "&include_image_language=it,null,en"
-            case "en":
-                includeLangParam = "&include_image_language=en,null,it"
-            default:
-                break
-            }
-        }
-
-        let urlString = "\(baseURL)\(endpoint)/\(itemID)/images?api_key=\(apiKey)\(includeLangParam)"
-
-        guard let url = URL(string: urlString) else {
-            DispatchQueue.main.async {
-                completion([])
-            }
-            return
-        }
-
-        session.dataTask(with: url) { data, response, error in
-            guard let data = data, error == nil else {
-                DispatchQueue.main.async { completion([]) }
-                return
-            }
-            do {
-                let decoded = try JSONDecoder().decode(TMDbImagesResponse.self, from: data)
-                let posters = decoded.posters
-                DispatchQueue.main.async {
-                    completion(posters)
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    completion([])
-                }
-            }
-        }.resume()
-    }
-
-    /// Scarica un'immagine da TMDb
-    func downloadPoster(path: String, completion: @escaping (UIImage?) -> Void) {
-        let urlString = "https://image.tmdb.org/t/p/original\(path)"
-        guard let url = URL(string: urlString) else {
-            DispatchQueue.main.async {
-                completion(nil)
-            }
-            return
-        }
-
-        session.dataTask(with: url) { data, response, error in
-            guard let data = data, error == nil, let img = UIImage(data: data) else {
-                DispatchQueue.main.async {
-                    completion(nil)
-                }
-                return
-            }
-            DispatchQueue.main.async {
-                completion(img)
-            }
-        }.resume()
-    }
-}
-
-// MARK: - TMDb Response Models
-struct TMDbSearchResponse: Codable {
-    let results: [TMDbSearchResult]
-}
-
-struct TMDbSearchResult: Codable {
-    let id: Int
-    let name: String?       // per le serie
-    let title: String?      // per i film
-    let first_air_date: String?
-    let release_date: String?
-}
-
-struct TMDbImagesResponse: Codable {
-    let posters: [TMDbImageInfo]
-}
-
-struct TMDbImageInfo: Codable {
-    let file_path: String
-    let width: Int
-    let height: Int
 }

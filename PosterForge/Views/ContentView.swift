@@ -3,82 +3,68 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var preferencesManager: PreferencesManager
     @StateObject var libraryVM = LibraryViewModel()
-
-    @State private var showSettings = false
-    @State private var showCSVImport = false
-    @State private var showSearch = false
-    @State private var showLibrary = false
+    
+    @State private var activeSheet: ActiveSheet?
+    @State private var showLoading = false
+    
+    enum ActiveSheet: Identifiable {
+        case settings, csvImport, search, library
+        var id: Int { hashValue }
+    }
 
     var body: some View {
         NavigationView {
             ZStack {
-                // Sfondo più "moderno": un gradiente violaceo (a esempio)
                 LinearGradient(gradient: Gradient(colors: [Color.purple, Color.blue]),
                                startPoint: .top,
                                endPoint: .bottom)
                     .edgesIgnoringSafeArea(.all)
-
+                
                 VStack(spacing: 30) {
-                    Text("PosterForge")
-                        .font(.largeTitle)
-                        .fontWeight(.heavy)
-                        .foregroundColor(.white)
-
-                    Text("Crea e gestisci i tuoi poster personalizzati")
-                        .font(.headline)
-                        .foregroundColor(.white.opacity(0.8))
-                        .multilineTextAlignment(.center)
-
-                    Spacer().frame(height: 40)
-
-                    buttonStyle("1) Carica CSV", icon: "tray.and.arrow.down") {
-                        showCSVImport = true
+                    // Header Section
+                    VStack(spacing: 12) {
+                        Text("PosterForge")
+                            .font(.largeTitle)
+                            .fontWeight(.heavy)
+                            .foregroundColor(.white)
+                        
+                        Text("Crea e gestisci i tuoi poster personalizzati")
+                            .font(.headline)
+                            .foregroundColor(.white.opacity(0.8))
                     }
-
-                    buttonStyle("2) Cerca un Film / Serie", icon: "magnifyingglass") {
-                        showSearch = true
+                    
+                    // Action Buttons
+                    VStack(spacing: 20) {
+                        actionButton("Carica CSV", icon: "tray.and.arrow.down", sheet: .csvImport)
+                        actionButton("Cerca Film/Serie", icon: "magnifyingglass", sheet: .search)
+                        actionButton("Mostra Libreria", icon: "photo.stack", sheet: .library)
                     }
-
-                    buttonStyle("3) Mostra Libreria", icon: "photo.tv") {
-                        showLibrary = true
-                    }
-
+                    
                     Spacer()
                 }
-                .padding()
-                .navigationBarItems(trailing:
-                    Button(action: {
-                        showSettings = true
-                    }) {
-                        Image(systemName: "gearshape")
-                            .foregroundColor(.white)
-                    }
-                )
-                .sheet(isPresented: $showSettings) {
-                    SettingsView()
-                        .environmentObject(preferencesManager)
-                }
-                .sheet(isPresented: $showCSVImport) {
-                    CSVImportView(libraryVM: libraryVM)
-                        .environmentObject(preferencesManager)
-                }
-                .sheet(isPresented: $showSearch) {
-                    SearchView(libraryVM: libraryVM)
-                        .environmentObject(preferencesManager)
-                }
-                .sheet(isPresented: $showLibrary) {
-                    LibraryView(libraryVM: libraryVM)
-                }
+                .padding(.top, 40)
             }
-            .onAppear {
-                // ...
+            .navigationBarItems(trailing: settingsButton)
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .settings: SettingsView()
+                case .csvImport: CSVImportView(libraryVM: libraryVM)
+                case .search: SearchView(libraryVM: libraryVM)
+                case .library: LibraryView(libraryVM: libraryVM)
+                }
             }
         }
     }
-
-    @ViewBuilder
-    private func buttonStyle(_ title: String, icon: String, action: @escaping ()->Void) -> some View {
-        Button(action: action) {
+    
+    private var settingsButton: some View {
+        Button(action: { activeSheet = .settings }) {
+            Image(systemName: "gearshape")
+                .foregroundColor(.white)
+        }
+    }
+    
+    private func actionButton(_ title: String, icon: String, sheet: ActiveSheet) -> some View {
+        Button(action: { activeSheet = sheet }) {
             HStack {
                 Image(systemName: icon)
                 Text(title)

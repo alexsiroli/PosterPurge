@@ -10,13 +10,13 @@ struct SearchView: View {
 
     @State private var query = ""
     @State private var isTV = false
-    @State private var results: [TMDbSearchResult] = []
+    @State private var results: [TMDbService.TMDbSearchResult] = []
 
     @State private var selectedYear = ""
     @State private var userRating = 5
     @State private var dateWatched = ""
 
-    @State private var selectedItem: TMDbSearchResult?
+    @State private var selectedItem: TMDbService.TMDbSearchResult?
     @State private var posterImages: [UIImage] = []
     @State private var chosenPoster: UIImage?
 
@@ -26,22 +26,16 @@ struct SearchView: View {
     // 3: completato
     @State private var phase = 0
 
-    private let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
+    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
         NavigationView {
             Group {
-                if phase == 0 {
-                    phase0View()
-                } else if phase == 1 {
-                    phase1View()
-                } else if phase == 2 {
-                    phase2View()
-                } else {
-                    phase3View()
+                switch phase {
+                case 0: phase0View()
+                case 1: phase1View()
+                case 2: phase2View()
+                default: phase3View()
                 }
             }
             .navigationTitle("Cerca Film/Serie")
@@ -54,7 +48,8 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Fase 0
+    // MARK: - UI Fasi
+    @ViewBuilder
     private func phase0View() -> some View {
         Form {
             Section(header: Text("Dati Film/Serie")) {
@@ -77,7 +72,7 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Fase 1
+    @ViewBuilder
     private func phase1View() -> some View {
         VStack {
             if results.isEmpty {
@@ -86,15 +81,7 @@ struct SearchView: View {
             } else {
                 List(results, id: \.id) { item in
                     Button {
-                        // Quando l'utente seleziona un risultato, se non abbiamo specificato un anno manualmente
-                        // prendiamo l'anno dal "release_date" o "first_air_date"
-                        self.selectedItem = item
-                        let yearString = isTV ? (item.first_air_date ?? "") : (item.release_date ?? "")
-                        if yearString.count >= 4 && self.selectedYear.isEmpty {
-                            self.selectedYear = String(yearString.prefix(4))
-                        }
-
-                        fetchPosters(for: item)
+                        handleResultSelection(item: item)
                     } label: {
                         Text(displayTitle(for: item))
                     }
@@ -103,7 +90,7 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Fase 2
+    @ViewBuilder
     private func phase2View() -> some View {
         VStack {
             Text("Scegli Poster")
@@ -113,10 +100,10 @@ struct SearchView: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(0 ..< posterImages.count, id: \.self) { i in
-                        Button(action: {
-                            self.chosenPoster = posterImages[i]
+                        Button {
+                            chosenPoster = posterImages[i]
                             generateFinalPoster()
-                        }) {
+                        } label: {
                             Image(uiImage: posterImages[i])
                                 .resizable()
                                 .scaledToFit()
@@ -130,7 +117,7 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Fase 3
+    @ViewBuilder
     private func phase3View() -> some View {
         VStack(spacing: 20) {
             Text("Poster generato e aggiunto in libreria!")
@@ -143,51 +130,65 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Ricerca
-    func search() {
+    // MARK: - Logica di ricerca
+    private func search() {
+        phase = 1
         results = []
         posterImages = []
         chosenPoster = nil
-        phase = 1
 
-        let yearInt = Int(selectedYear)
-        TMDbService.shared.search(query: query, isTV: isTV, year: yearInt) { res in
-            self.results = res
+        Task {
+            do {
+                let yearInt = Int(selectedYear)
+                results = try await TMDbService.shared.search(
+                    query: query,
+                    mediaType: isTV ? .tv : .movie,
+                    year: yearInt
+                )
+            } catch {
+                print("Errore ricerca: \(error.localizedDescription)")
+            }
         }
     }
 
-    // MARK: - Caricamento poster
-    func fetchPosters(for item: TMDbSearchResult) {
-        let userPref = preferencesManager.preferences
-        TMDbService.shared.fetchPosters(
-            itemID: item.id,
-            isTV: isTV,
-            languagePref: userPref.preferredLanguage
-        ) { posters in
-            let maxToShow = min(30, posters.count)
-            let subset = Array(posters.prefix(maxToShow))
+    private func handleResultSelection(item: TMDbService.TMDbSearchResult) {
+        selectedItem = item
+        let yearString = isTV ? item.first_air_date : item.release_date
+        if let yearString = yearString, yearString.count >= 4, selectedYear.isEmpty {
+            selectedYear = String(yearString.prefix(4))
+        }
+        fetchPosters(for: item)
+    }
 
-            self.posterImages = []
-            let group = DispatchGroup()
-
-            for p in subset {
-                group.enter()
-                TMDbService.shared.downloadPoster(path: p.file_path) { img in
-                    if let i = img {
-                        self.posterImages.append(i)
+    private func fetchPosters(for item: TMDbService.TMDbSearchResult) {
+        Task {
+            do {
+                let imagesResponse = try await TMDbService.shared.fetchImages(
+                    for: item.id,
+                    mediaType: isTV ? .tv : .movie
+                )
+                
+                var images: [UIImage] = []
+                for poster in imagesResponse.posters.prefix(30) {
+                    if let image = try await TMDbService.shared.downloadImage(path: poster.file_path) {
+                        images.append(image)
                     }
-                    group.leave()
+                }
+
+                await MainActor.run {
+                    posterImages = images
+                    phase = 2
+                }
+            } catch {
+                print("Errore fetch poster: \(error.localizedDescription)")
+                await MainActor.run {
+                    phase = 0
                 }
             }
-
-            group.notify(queue: .main) {
-                self.phase = 2
-            }
         }
     }
 
-    // MARK: - Genera e salva locandina base
-    func generateFinalPoster() {
+    private func generateFinalPoster() {
         guard let base = chosenPoster else { return }
         let movie = MovieModel(
             title: query,
@@ -208,14 +209,10 @@ struct SearchView: View {
     }
 
     // MARK: - Helper
-    private func displayTitle(for item: TMDbSearchResult) -> String {
-        let title = isTV ? (item.name ?? "??") : (item.title ?? "??")
-        let yearString = isTV ? (item.first_air_date ?? "") : (item.release_date ?? "")
-        var finalYear = "????"
-        if yearString.count >= 4 {
-            finalYear = String(yearString.prefix(4))
-        }
-        return "\(title) (\(finalYear))"
+    private func displayTitle(for item: TMDbService.TMDbSearchResult) -> String {
+        let title = item.displayTitle
+        let year = item.releaseYear
+        return "\(title) (\(year))"
     }
 
     private func resetState() {
