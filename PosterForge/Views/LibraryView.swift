@@ -1,6 +1,3 @@
-// ========================================
-// File: LibraryView.swift
-// ========================================
 import SwiftUI
 
 struct LibraryView: View {
@@ -49,11 +46,15 @@ struct LibraryView: View {
                 }
 
                 if selectionMode && !selectedItems.isEmpty {
-                    // Pulsante per scaricare in blocco
-                    Button("Scarica selezionati") {
-                        showLayoutChoiceForMultiple()
+                    HStack(spacing: 40) {
+                        Button("Scarica selezionati") {
+                            showLayoutChoiceForMultiple()
+                        }
+                        Button("Elimina selezionati") {
+                            removeSelectedPosters()
+                        }
                     }
-                    .padding()
+                    .padding(.bottom, 20)
                 }
             }
             .navigationTitle("La mia Libreria")
@@ -76,7 +77,6 @@ struct LibraryView: View {
     }
 
     var sortedPosters: [PosterItem] {
-        // Dal più recente al meno recente
         libraryVM.posters.sorted { $0.timestamp > $1.timestamp }
     }
 
@@ -88,59 +88,83 @@ struct LibraryView: View {
         }
     }
 
-    private func showLayoutChoiceForMultiple() {
-        // Mostra un'ActionSheet con scelta layout
-        let alert = UIAlertController(title: "Scegli layout", message: nil, preferredStyle: .actionSheet)
-        alert.addAction(UIAlertAction(title: "Tradizionale", style: .default, handler: { _ in
-            generateAndSaveMultiple(layout: "traditional")
-        }))
-        alert.addAction(UIAlertAction(title: "Moderno", style: .default, handler: { _ in
-            generateAndSaveMultiple(layout: "modern")
-        }))
-        alert.addAction(UIAlertAction(title: "Annulla", style: .cancel, handler: nil))
+    private func removeSelectedPosters() {
+        let toRemove = sortedPosters.filter{selectedItems.contains($0.id)}
+        for p in toRemove {
+            libraryVM.removePoster(p)
+        }
+        selectedItems.removeAll()
+        selectionMode=false
+    }
 
-        // Per presentare un UIAlertController in SwiftUI:
+    private func showLayoutChoiceForMultiple() {
+        let alert = UIAlertController(
+            title:"Operazione",
+            message:"Come vuoi scaricare i poster selezionati?",
+            preferredStyle:.actionSheet
+        )
+        alert.addAction(UIAlertAction(title:"Poster grezzo", style:.default, handler:{ _ in
+            downloadMultipleRaw()
+        }))
+        alert.addAction(UIAlertAction(title:"Layout Tradizionale", style:.default, handler:{ _ in
+            generateAndSaveMultiple(layout:"traditional")
+        }))
+        alert.addAction(UIAlertAction(title:"Layout Moderno", style:.default, handler:{ _ in
+            generateAndSaveMultiple(layout:"modern")
+        }))
+        alert.addAction(UIAlertAction(title:"Annulla", style:.cancel, handler:nil))
+
         if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = scene.windows.first,
-           let rootVC = window.rootViewController {
-            rootVC.present(alert, animated: true, completion: nil)
+           let window=scene.windows.first,
+           let root=window.rootViewController {
+            
+            if let pop = alert.popoverPresentationController {
+                pop.sourceView=window
+                pop.sourceRect=CGRect(x: window.bounds.midX, y: window.bounds.maxY, width:0,height:0)
+                pop.permittedArrowDirections=[]
+            }
+            root.present(alert, animated:true)
         }
     }
 
-    private func generateAndSaveMultiple(layout: String) {
-        for poster in sortedPosters where selectedItems.contains(poster.id) {
-            guard let baseImage = poster.uiImage else { continue }
-            if let newImg = PosterGenerator.shared.generatePoster(
-                baseImage: baseImage,
-                layout: layout,
-                movie: poster.movie
-            ) {
+    private func downloadMultipleRaw() {
+        for p in sortedPosters where selectedItems.contains(p.id) {
+            if let base=p.uiImage {
+                UIImageWriteToSavedPhotosAlbum(base, nil, nil, nil)
+            }
+        }
+        selectedItems.removeAll()
+        selectionMode=false
+    }
+
+    private func generateAndSaveMultiple(layout:String) {
+        for p in sortedPosters where selectedItems.contains(p.id) {
+            guard let base=p.uiImage else{continue}
+            if let newImg = PosterGenerator.shared.generatePoster(baseImage:base, layout:layout, movie:p.movie){
                 UIImageWriteToSavedPhotosAlbum(newImg, nil, nil, nil)
             }
         }
         selectedItems.removeAll()
-        selectionMode = false
+        selectionMode=false
     }
 }
 
 struct LibraryPosterCell: View {
     let poster: PosterItem
     let isSelected: Bool
-    let tapAction: () -> Void
+    let tapAction: ()->Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment:.topTrailing) {
             poster.image
                 .resizable()
                 .scaledToFit()
                 .cornerRadius(8)
-                .shadow(radius: 2)
-                .onTapGesture {
-                    tapAction()
-                }
+                .shadow(radius:2)
+                .onTapGesture{ tapAction() }
 
             if isSelected {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName:"checkmark.circle.fill")
                     .foregroundColor(.blue)
                     .padding(5)
             }
@@ -150,8 +174,7 @@ struct LibraryPosterCell: View {
                 .font(.caption)
                 .padding(4)
                 .background(Color.black.opacity(0.5))
-                .foregroundColor(.white)
-            ,
+                .foregroundColor(.white),
             alignment: .bottom
         )
     }

@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		F547D9442D734354009B968E /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F547D9432D734354009B968E /* LaunchScreen.storyboard */; };
-		F547D9742D73E59B009B968E /* output.txt in Resources */ = {isa = PBXBuildFile; fileRef = F547D9732D73E59B009B968E /* output.txt */; };
 		F5A0F2FA2D71D32E0072599E /* print.py in Resources */ = {isa = PBXBuildFile; fileRef = F5A0F2F82D71D3250072599E /* print.py */; };
 /* End PBXBuildFile section */
 
@@ -31,7 +30,6 @@
 
 /* Begin PBXFileReference section */
 		F547D9432D734354009B968E /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
-		F547D9732D73E59B009B968E /* output.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = output.txt; sourceTree = "<group>"; };
 		F57A6F982D733AAE00C9E28A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F5A0F2982D71CED50072599E /* PosterForge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PosterForge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F5A0F2A82D71CED70072599E /* PosterForgeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PosterForgeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -91,7 +89,6 @@
 				F5A0F2AB2D71CED70072599E /* PosterForgeTests */,
 				F5A0F2B52D71CED70072599E /* PosterForgeUITests */,
 				F5A0F2992D71CED50072599E /* Products */,
-				F547D9732D73E59B009B968E /* output.txt */,
 				F5A0F2F82D71D3250072599E /* print.py */,
 			);
 			sourceTree = "<group>";
@@ -228,7 +225,6 @@
 			files = (
 				F5A0F2FA2D71D32E0072599E /* print.py in Resources */,
 				F547D9442D734354009B968E /* LaunchScreen.storyboard in Resources */,
-				F547D9742D73E59B009B968E /* output.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

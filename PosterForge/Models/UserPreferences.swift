@@ -1,12 +1,9 @@
 import SwiftUI
 
 struct UserPreferences: Codable {
-    var preferredLanguage: String
     var posterSelectionMode: String  // "automatic" o "manual"
 
-    init(preferredLanguage: String = "none",
-         posterSelectionMode: String = "automatic") {
-        self.preferredLanguage = preferredLanguage
+    init(posterSelectionMode: String = "automatic") {
         self.posterSelectionMode = posterSelectionMode
     }
 }

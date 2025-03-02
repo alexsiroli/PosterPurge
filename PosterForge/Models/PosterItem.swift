@@ -1,6 +1,3 @@
-// ========================================
-// File: PosterItem.swift
-// ========================================
 import SwiftUI
 
 struct PosterItem: Identifiable, Equatable {

@@ -26,9 +26,8 @@ extension View {
             .padding(AppStyle.cardPadding)
             .background(AppColor.cardBackground)
             .cornerRadius(AppStyle.cornerRadius)
-            .shadow(color: .black.opacity(0.1), radius: AppStyle.shadowRadius, x: 0, y: 4)
+            .shadow(color: .black.opacity(0.1), radius: AppStyle.shadowRadius, x:0,y:4)
     }
-    
     func appButtonStyle() -> some View {
         self
             .padding(AppStyle.buttonPadding)
@@ -36,6 +35,6 @@ extension View {
             .foregroundColor(.white)
             .font(AppFont.headline)
             .cornerRadius(AppStyle.cornerRadius)
-            .shadow(color: AppColor.primary.opacity(0.3), radius: 8, x: 0, y: 4)
+            .shadow(color: AppColor.primary.opacity(0.3), radius:8,x:0,y:4)
     }
 }

@@ -8,7 +8,6 @@ class LibraryViewModel: ObservableObject {
 
     init() {
         loadLibrary()
-
         // Ascoltiamo la notifica di reset
         NotificationCenter.default.addObserver(
             self,
@@ -35,7 +34,6 @@ class LibraryViewModel: ObservableObject {
             print("Errore eliminando library JSON:", error)
         }
 
-        // Notifichiamo la UI
         DispatchQueue.main.async {
             self.objectWillChange.send()
         }
@@ -102,7 +100,6 @@ class LibraryViewModel: ObservableObject {
                     imageFilename: dto.imageFilename
                 )
             }
-
             self.posters = loadedItems
         } catch {
             print("Errore nel caricamento libreria: \(error)")
@@ -110,14 +107,12 @@ class LibraryViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Funzioni di supporto per immagini
+    // MARK: - Supporto Immagini
     private func saveImageToDisk(uiImage: UIImage, id: UUID) -> String? {
         let folderURL = imagesFolderURL()
         let filename = "\(id.uuidString).png"
         let fileURL = folderURL.appendingPathComponent(filename)
-
         guard let pngData = uiImage.pngData() else { return nil }
-
         do {
             try pngData.write(to: fileURL)
             return filename
@@ -147,19 +142,18 @@ class LibraryViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Utility path
+    // MARK: - Path
     private func libraryURL() -> URL {
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return documentsURL.appendingPathComponent("\(libraryKey).json")
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return docs.appendingPathComponent("\(libraryKey).json")
     }
 
     private func imagesFolderURL() -> URL {
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return documentsURL.appendingPathComponent(folderName)
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return docs.appendingPathComponent(folderName)
     }
 }
 
-// MARK: - DTO “intermedio”
 struct PosterItemDTO: Codable {
     let id: UUID
     let movie: MovieModel

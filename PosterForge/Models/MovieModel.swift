@@ -1,9 +1,5 @@
-// ========================================
-// File: MovieModel.swift
-// ========================================
 import SwiftUI
 
-/// Modello per rappresentare un film/serie come appare nel CSV
 struct MovieModel: Identifiable, Equatable, Codable {
     let id = UUID()
 
