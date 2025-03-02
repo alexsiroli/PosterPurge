@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		F547D9442D734354009B968E /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F547D9432D734354009B968E /* LaunchScreen.storyboard */; };
+		F5A0F2FA2D71D32E0072599E /* print.py in Resources */ = {isa = PBXBuildFile; fileRef = F5A0F2F82D71D3250072599E /* print.py */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		F5A0F2A92D71CED70072599E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,9 +29,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		F547D9432D734354009B968E /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		F57A6F982D733AAE00C9E28A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F5A0F2982D71CED50072599E /* PosterForge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PosterForge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F5A0F2A82D71CED70072599E /* PosterForgeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PosterForgeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F5A0F2B22D71CED70072599E /* PosterForgeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PosterForgeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F5A0F2F82D71D3250072599E /* print.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = print.py; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,10 +83,13 @@
 		F5A0F28F2D71CED50072599E = {
 			isa = PBXGroup;
 			children = (
+				F547D9432D734354009B968E /* LaunchScreen.storyboard */,
+				F57A6F982D733AAE00C9E28A /* Info.plist */,
 				F5A0F29A2D71CED50072599E /* PosterForge */,
 				F5A0F2AB2D71CED70072599E /* PosterForgeTests */,
 				F5A0F2B52D71CED70072599E /* PosterForgeUITests */,
 				F5A0F2992D71CED50072599E /* Products */,
+				F5A0F2F82D71D3250072599E /* print.py */,
 			);
 			sourceTree = "<group>";
 		};
@@ -212,6 +223,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F5A0F2FA2D71D32E0072599E /* print.py in Resources */,
+				F547D9442D734354009B968E /* LaunchScreen.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -397,8 +410,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"PosterForge/Preview Content\"";
 				DEVELOPMENT_TEAM = 4HPM355GHR;
+				DONT_GENERATE_INFOPLIST_FILE = NO;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -426,8 +441,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"PosterForge/Preview Content\"";
 				DEVELOPMENT_TEAM = 4HPM355GHR;
+				DONT_GENERATE_INFOPLIST_FILE = NO;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -453,7 +470,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4HPM355GHR;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexsiroli.PosterForgeTests;
@@ -472,7 +490,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4HPM355GHR;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexsiroli.PosterForgeTests;
@@ -490,7 +509,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4HPM355GHR;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexsiroli.PosterForgeUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -507,7 +527,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4HPM355GHR;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexsiroli.PosterForgeUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

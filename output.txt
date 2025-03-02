@@ -1,0 +1,1774 @@
+Struttura del progetto:
+PosterForge/
+    .DS_Store
+    Info.plist
+    print.py
+    PosterForgeUITests/
+        PosterForgeUITests.swift
+        PosterForgeUITestsLaunchTests.swift
+    PosterForgeTests/
+        PosterForgeTests.swift
+    PosterForge/
+        PosterForgeApp.swift
+        ViewModels/
+            LibraryViewModel.swift
+            PosterGenerator.swift
+        Assets.xcassets/
+            Contents.json
+            AppIcon.appiconset/
+                Contents.json
+            AccentColor.colorset/
+                Contents.json
+        Models/
+            MovieModel.swift
+            PosterItem.swift
+            UserPreferences.swift
+        Preview Content/
+            Preview Assets.xcassets/
+                Contents.json
+        Views/
+            CSVImportView.swift
+            ContentView.swift
+            LibraryView.swift
+            PosterDetailView.swift
+            SearchView.swift
+            SettingsView.swift
+        Services/
+            CSVParser.swift
+            TMDbService.swift
+    PosterForge.xcodeproj/
+        project.pbxproj
+        xcuserdata/
+            alexsiroli.xcuserdatad/
+                xcschemes/
+                    xcschememanagement.plist
+        project.xcworkspace/
+            contents.xcworkspacedata
+            xcuserdata/
+                alexsiroli.xcuserdatad/
+                    UserInterfaceState.xcuserstate
+            xcshareddata/
+                swiftpm/
+                    configuration/
+
+Contenuti dei file .swift:
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForgeUITests/PosterForgeUITests.swift
+========================================
+// ========================================
+// File: PosterForgeUITests.swift
+// ========================================
+import XCTest
+
+final class PosterForgeUITests: XCTestCase {
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    override func tearDownWithError() throws {}
+
+    @MainActor
+    func testExample() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        // Esempio di test UI
+        XCTAssertTrue(app.buttons["1) Carica CSV"].exists)
+        XCTAssertTrue(app.buttons["2) Cerca un Film / Serie"].exists)
+        XCTAssertTrue(app.buttons["3) Mostra Libreria"].exists)
+    }
+
+    @MainActor
+    func testLaunchPerformance() throws {
+        if #available(iOS 13.0, *) {
+            measure(metrics: [XCTApplicationLaunchMetric()]) {
+                XCUIApplication().launch()
+            }
+        }
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForgeUITests/PosterForgeUITestsLaunchTests.swift
+========================================
+// ========================================
+// File: PosterForgeUITestsLaunchTests.swift
+// ========================================
+import XCTest
+
+final class PosterForgeUITestsLaunchTests: XCTestCase {
+
+    override class var runsForEachTargetApplicationUIConfiguration: Bool { true }
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    @MainActor
+    func testLaunch() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Launch Screen"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForgeTests/PosterForgeTests.swift
+========================================
+// ========================================
+// File: PosterForgeTests.swift
+// ========================================
+import Testing
+@testable import PosterForge
+
+struct PosterForgeTests {
+
+    @Test func example() async throws {
+        // Esempio di test col nuovo Swift Testing (se disponibile)
+        // #expect(true, ==, true)
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/PosterForgeApp.swift
+========================================
+// ========================================
+// File: PosterForgeApp.swift
+// ========================================
+import SwiftUI
+
+@main
+struct PosterForgeApp: App {
+    @StateObject var preferencesManager = PreferencesManager()
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environmentObject(preferencesManager)
+        }
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/ViewModels/LibraryViewModel.swift
+========================================
+// ========================================
+// File: LibraryViewModel.swift
+// ========================================
+import SwiftUI
+
+class LibraryViewModel: ObservableObject {
+    @Published var posters: [PosterItem] = []
+
+    private let libraryKey = "PosterForgeLibrary"
+    private let folderName = "PosterForgeImages"
+
+    init() {
+        loadLibrary()
+    }
+
+    // MARK: - Aggiunta/Rimozione Poster
+    func addPoster(_ poster: PosterItem) {
+        posters.append(poster)
+        saveLibrary()
+    }
+
+    func removePoster(_ poster: PosterItem) {
+        posters.removeAll { $0.id == poster.id }
+        deleteImageFromDisk(poster: poster)
+        saveLibrary()
+    }
+
+    // MARK: - Salvataggio Libreria su Disco
+    func saveLibrary() {
+        do {
+            let folderURL = imagesFolderURL()
+            if !FileManager.default.fileExists(atPath: folderURL.path) {
+                try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true, attributes: nil)
+            }
+
+            let itemsForJSON = posters.map { poster -> PosterItemDTO in
+                var imageFilename: String? = poster.imageFilename
+                if imageFilename == nil, let uiImage = poster.uiImage {
+                    imageFilename = saveImageToDisk(uiImage: uiImage, id: poster.id)
+                }
+                return PosterItemDTO(
+                    id: poster.id,
+                    movie: poster.movie,
+                    timestamp: poster.timestamp,
+                    imageFilename: imageFilename
+                )
+            }
+
+            let data = try JSONEncoder().encode(itemsForJSON)
+            let jsonURL = libraryURL()
+            try data.write(to: jsonURL)
+
+        } catch {
+            print("Errore nel salvataggio libreria: \(error)")
+        }
+    }
+
+    // MARK: - Caricamento Libreria da Disco
+    func loadLibrary() {
+        let jsonURL = libraryURL()
+        guard FileManager.default.fileExists(atPath: jsonURL.path) else { return }
+
+        do {
+            let data = try Data(contentsOf: jsonURL)
+            let decoded = try JSONDecoder().decode([PosterItemDTO].self, from: data)
+
+            let loadedItems: [PosterItem] = decoded.map { dto in
+                let possibleImage = loadImageFromDisk(filename: dto.imageFilename)
+                return PosterItem(
+                    id: dto.id,
+                    movie: dto.movie,
+                    uiImage: possibleImage,
+                    timestamp: dto.timestamp,
+                    imageFilename: dto.imageFilename
+                )
+            }
+
+            self.posters = loadedItems
+        } catch {
+            print("Errore nel caricamento libreria: \(error)")
+            self.posters = []
+        }
+    }
+
+    // MARK: - Funzioni di supporto per immagini
+    private func saveImageToDisk(uiImage: UIImage, id: UUID) -> String? {
+        let folderURL = imagesFolderURL()
+        let filename = "\(id.uuidString).png"
+        let fileURL = folderURL.appendingPathComponent(filename)
+
+        guard let pngData = uiImage.pngData() else { return nil }
+
+        do {
+            try pngData.write(to: fileURL)
+            return filename
+        } catch {
+            print("Errore salvando immagine su disco: \(error)")
+            return nil
+        }
+    }
+
+    private func loadImageFromDisk(filename: String?) -> UIImage? {
+        guard let filename = filename else { return nil }
+        let fileURL = imagesFolderURL().appendingPathComponent(filename)
+        if let data = try? Data(contentsOf: fileURL),
+           let image = UIImage(data: data) {
+            return image
+        }
+        return nil
+    }
+
+    private func deleteImageFromDisk(poster: PosterItem) {
+        guard let filename = poster.imageFilename else { return }
+        let fileURL = imagesFolderURL().appendingPathComponent(filename)
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch {
+            print("Errore cancellando immagine: \(error)")
+        }
+    }
+
+    // MARK: - Utility path
+    private func libraryURL() -> URL {
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documentsURL.appendingPathComponent("\(libraryKey).json")
+    }
+
+    private func imagesFolderURL() -> URL {
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documentsURL.appendingPathComponent(folderName)
+    }
+}
+
+// MARK: - DTO “intermedio”
+struct PosterItemDTO: Codable {
+    let id: UUID
+    let movie: MovieModel
+    let timestamp: Date
+    let imageFilename: String?
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/ViewModels/PosterGenerator.swift
+========================================
+// ========================================
+// File: PosterGenerator.swift
+// ========================================
+//
+// Traduzione fedele del codice Python "MoviePosters.ipynb" in Swift.
+// Genera layout 'traditional' o 'modern'.
+//
+// Se vuoi personalizzare la grafica, modifica i parametri geometrici.
+//
+// Per la persistenza delle immagini, si demanda al LibraryViewModel.
+//
+// ========================================
+
+import UIKit
+import CoreGraphics
+import CoreImage
+
+class PosterGenerator {
+    static let shared = PosterGenerator()
+
+    // Dimensioni generali (iPhone 15)
+    private let iphoneWidth: CGFloat = 1179
+    private let iphoneHeight: CGFloat = 2556
+
+    // --- Layout Tradizionale ---
+    private let tradQuadX: CGFloat = 190
+    private let tradQuadY: CGFloat = 700
+    private let tradQuadW: CGFloat = 800
+    private let tradQuadH: CGFloat = 1400
+
+    private let tradPosterW: CGFloat = 682
+    private let tradPosterH: CGFloat = 1023
+    private let tradPosterX: CGFloat = 250
+    private let tradPosterY: CGFloat = 960
+
+    private let tradTitlePoint = CGPoint(x: 247, y: 749)
+    private let tradYearPoint = CGPoint(x: 893, y: 749)
+
+    private let tradStarsStartX: CGFloat = 300
+    private let tradStarsY: CGFloat = 2000
+    private let tradStarSize: CGFloat = 35
+    private let tradStarSpacing: CGFloat = 10
+
+    // --- Layout Moderno ---
+    private let altBoxX: CGFloat = 86
+    private let altBoxY: CGFloat = 736
+    private let altBoxW: CGFloat = 1007
+    private let altBoxH: CGFloat = 1007
+    private let altBoxCorner: CGFloat = 32
+
+    private let modPosterW: CGFloat = 400
+    private let modPosterH: CGFloat = 600
+    private var modPosterX: CGFloat { return altBoxX + altBoxW - modPosterW - 30 }
+    private var modPosterY: CGFloat { return altBoxY + 30 }
+
+    private var modYearPoint: CGPoint {
+        return CGPoint(x: altBoxX + 30, y: altBoxY + 40)
+    }
+    private var modTitleRect: CGRect {
+        let availableWidth = altBoxW - modPosterW - 100
+        return CGRect(x: altBoxX + 30, y: modYearPoint.y + 60, width: availableWidth, height: 300)
+    }
+
+    private let modStarSize: CGFloat = 40
+    private let modStarCount = 10
+    private let modStarSpacing: CGFloat = 8
+
+    // Riquadro test ruotato
+    private let modRotatedBoxOrigin = CGPoint(x: 120, y: 850)
+    private let modRotatedBoxSize = CGSize(width: 270, height: 850)
+
+    func generatePoster(baseImage: UIImage, layout: String, movie: MovieModel) -> UIImage? {
+        if layout == "modern" {
+            return generateModern(base: baseImage, movie: movie)
+        } else {
+            return generateTraditional(base: baseImage, movie: movie)
+        }
+    }
+
+    // MARK: - TRADITIONAL
+    private func generateTraditional(base: UIImage, movie: MovieModel) -> UIImage? {
+        let size = CGSize(width: iphoneWidth, height: iphoneHeight)
+        UIGraphicsBeginImageContextWithOptions(size, false, 1.0)
+        guard let context = UIGraphicsGetCurrentContext() else { return nil }
+
+        let bgColor = averageColor(baseImage: base) ?? UIColor.white
+        bgColor.setFill()
+        context.fill(CGRect(origin: .zero, size: size))
+
+        // Riquadro
+        let outerRect = CGRect(x: tradQuadX, y: tradQuadY, width: tradQuadW, height: tradQuadH)
+        UIColor.white.setFill()
+        context.fill(outerRect)
+        context.setStrokeColor(UIColor.black.cgColor)
+        context.setLineWidth(15)
+        context.stroke(outerRect)
+
+        // Poster
+        let posterRect = CGRect(x: tradPosterX, y: tradPosterY, width: tradPosterW, height: tradPosterH)
+        if let resizedPoster = base.resize(to: CGSize(width: tradPosterW, height: tradPosterH)) {
+            resizedPoster.draw(in: posterRect)
+        }
+
+        // Testo titolo e anno
+        let titleFont = UIFont.boldSystemFont(ofSize: 64)
+        let titleAttrs: [NSAttributedString.Key: Any] = [
+            .font: titleFont,
+            .foregroundColor: UIColor.black
+        ]
+        movie.title.draw(at: tradTitlePoint, withAttributes: titleAttrs)
+
+        let yearFont = UIFont.boldSystemFont(ofSize: 28)
+        let yearAttrs: [NSAttributedString.Key: Any] = [
+            .font: yearFont,
+            .foregroundColor: UIColor.black
+        ]
+        movie.year.draw(at: tradYearPoint, withAttributes: yearAttrs)
+
+        // Stelline
+        let rating = max(0, min(movie.rating, 10))
+        for i in 0..<10 {
+            let starX = tradStarsStartX + CGFloat(i) * (tradStarSize + tradStarSpacing)
+            let rect = CGRect(x: starX, y: tradStarsY, width: tradStarSize, height: tradStarSize)
+            let starImage = (i < rating) ? UIImage(systemName: "star.fill") : UIImage(systemName: "star")
+            starImage?
+                .withTintColor(.black, renderingMode: .alwaysOriginal)
+                .draw(in: rect)
+        }
+
+        let finalImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return finalImage
+    }
+
+    // MARK: - MODERN
+    private func generateModern(base: UIImage, movie: MovieModel) -> UIImage? {
+        let size = CGSize(width: iphoneWidth, height: iphoneHeight)
+        UIGraphicsBeginImageContextWithOptions(size, false, 1.0)
+        guard let context = UIGraphicsGetCurrentContext() else { return nil }
+
+        let baseAvg = averageColor(baseImage: base) ?? UIColor.darkGray
+        let colorTop = baseAvg.withAlphaComponent(0.7)
+        let colorBottom = UIColor.white.withAlphaComponent(0.7)
+        let gradientColors = [colorTop.cgColor, colorBottom.cgColor] as CFArray
+        let locations: [CGFloat] = [0.0, 1.0]
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+
+        if let gradient = CGGradient(colorsSpace: colorSpace, colors: gradientColors, locations: locations) {
+            context.drawLinearGradient(gradient,
+                                       start: .zero,
+                                       end: CGPoint(x: 0, y: iphoneHeight),
+                                       options: [])
+        }
+
+        let boxRect = CGRect(x: altBoxX, y: altBoxY, width: altBoxW, height: altBoxH)
+        UIColor(white: 1.0, alpha: 0.8).setFill()
+        let boxPath = UIBezierPath(roundedRect: boxRect, cornerRadius: altBoxCorner)
+        boxPath.fill()
+
+        // (Debug rectangle - facoltativo)
+        let debugRect = CGRect(origin: modRotatedBoxOrigin, size: modRotatedBoxSize)
+        let debugPath = UIBezierPath(rect: debugRect)
+        UIColor.red.setStroke()
+        debugPath.lineWidth = 2
+        debugPath.stroke()
+
+        let posterRect = CGRect(x: modPosterX, y: modPosterY, width: modPosterW, height: modPosterH)
+        if let resizedPoster = base.resize(to: CGSize(width: modPosterW, height: modPosterH)) {
+            let posterPath = UIBezierPath(roundedRect: posterRect, cornerRadius: 20)
+            posterPath.addClip()
+            resizedPoster.draw(in: posterRect)
+        }
+
+        let yearFont = UIFont.boldSystemFont(ofSize: 36)
+        let yearAttrs: [NSAttributedString.Key: Any] = [
+            .font: yearFont,
+            .foregroundColor: UIColor.black
+        ]
+        movie.year.draw(at: modYearPoint, withAttributes: yearAttrs)
+
+        let titleFont = UIFont.boldSystemFont(ofSize: 44)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        let titleAttrs: [NSAttributedString.Key: Any] = [
+            .font: titleFont,
+            .foregroundColor: UIColor.black,
+            .paragraphStyle: paragraphStyle
+        ]
+        NSString(string: movie.title).draw(in: modTitleRect, withAttributes: titleAttrs)
+
+        let rating = max(0, min(movie.rating, 10))
+        let starCount = 10
+        let starSize = modStarSize
+        let starSpacing = modStarSpacing
+        let starTotalWidth = CGFloat(starCount) * starSize + CGFloat(starCount - 1) * starSpacing
+        let starStartX = boxRect.midX - starTotalWidth / 2
+        let starY = boxRect.maxY - 60
+        for i in 0..<starCount {
+            let x = starStartX + CGFloat(i) * (starSize + starSpacing)
+            let rect = CGRect(x: x, y: starY, width: starSize, height: starSize)
+            if i < rating {
+                UIImage(systemName: "star.fill")?
+                    .withTintColor(.yellow, renderingMode: .alwaysOriginal)
+                    .draw(in: rect)
+            } else {
+                UIImage(systemName: "star")?
+                    .withTintColor(.gray, renderingMode: .alwaysOriginal)
+                    .draw(in: rect)
+            }
+        }
+
+        // Testo ruotato
+        func wrapText(_ text: String, font: UIFont, maxWidth: CGFloat) -> String {
+            let words = text.split(separator: " ")
+            guard !words.isEmpty else { return "" }
+            var lines: [String] = []
+            var currentLine = String(words[0])
+            for word in words.dropFirst() {
+                let testLine = currentLine + " " + word
+                let size = (testLine as NSString).size(withAttributes: [.font: font])
+                if size.width <= maxWidth {
+                    currentLine = testLine
+                } else {
+                    lines.append(currentLine)
+                    currentLine = String(word)
+                }
+            }
+            lines.append(currentLine)
+            return lines.joined(separator: "\n")
+        }
+
+        func optimalFontSize(for text: String, maxWidth: CGFloat, maxHeight: CGFloat, fontName: String) -> CGFloat {
+            var fs: CGFloat = 64
+            while fs > 1 {
+                let font = UIFont(name: fontName, size: fs) ?? UIFont.systemFont(ofSize: fs)
+                let wrapped = wrapText(text, font: font, maxWidth: maxWidth)
+                let bounding = (wrapped as NSString).boundingRect(
+                    with: CGSize(width: maxWidth, height: CGFloat.greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin],
+                    attributes: [.font: font],
+                    context: nil
+                )
+                if bounding.height <= maxHeight {
+                    return fs
+                }
+                fs -= 1
+            }
+            return 1
+        }
+
+        let optimalSize = optimalFontSize(
+            for: movie.title,
+            maxWidth: modRotatedBoxSize.height,
+            maxHeight: modRotatedBoxSize.width,
+            fontName: "DejaVuSans-Bold"
+        )
+        let rotatedFont = UIFont(name: "DejaVuSans-Bold", size: optimalSize) ?? UIFont.boldSystemFont(ofSize: optimalSize)
+        let wrappedTitle = wrapText(movie.title, font: rotatedFont, maxWidth: modRotatedBoxSize.height)
+
+        UIGraphicsBeginImageContextWithOptions(modRotatedBoxSize, false, 1.0)
+        (wrappedTitle as NSString).draw(
+            in: CGRect(origin: .zero, size: modRotatedBoxSize),
+            withAttributes: [.font: rotatedFont, .foregroundColor: UIColor.black]
+        )
+        let textImage = UIGraphicsGetImageFromCurrentImageContext()!
+        UIGraphicsEndImageContext()
+
+        let rotatedTextImage = textImage.rotate(radians: .pi / 2)
+        rotatedTextImage.draw(at: modRotatedBoxOrigin)
+
+        // Stelline decorative
+        let modStarSpacingAlt: CGFloat = 55
+        let centerX = posterRect.midX
+        let starYMod = posterRect.maxY - 50
+        let totalStarWidthAlt = CGFloat(modStarCount - 1) * modStarSpacingAlt
+        let leftX = centerX - totalStarWidthAlt / 2
+
+        func starPolygon(cx: CGFloat, cy: CGFloat, rOut: CGFloat, rIn: CGFloat, n: Int = 5) -> [CGPoint] {
+            var coords: [CGPoint] = []
+            var angle = CGFloat.pi / 2
+            let step = CGFloat.pi / CGFloat(n)
+            for _ in 0..<(2 * n) {
+                let r = (coords.count % 2 == 0) ? rOut : rIn
+                let x = cx + r * cos(angle)
+                let y = cy - r * sin(angle)
+                coords.append(CGPoint(x: x, y: y))
+                angle += step
+            }
+            return coords
+        }
+
+        let rOut: CGFloat = 20
+        let rIn: CGFloat = 9
+        for i in 0..<modStarCount {
+            let sx = leftX + CGFloat(i) * modStarSpacingAlt
+            let coords = starPolygon(cx: sx + rOut, cy: starYMod + rOut, rOut: rOut, rIn: rIn, n: 5)
+            let path = UIBezierPath()
+            if let first = coords.first {
+                path.move(to: first)
+                for pt in coords.dropFirst() {
+                    path.addLine(to: pt)
+                }
+                path.close()
+            }
+            if i < rating {
+                UIColor(red: 255/255, green: 215/255, blue: 0, alpha: 1.0).setFill()
+                UIColor(red: 255/255, green: 215/255, blue: 0, alpha: 1.0).setStroke()
+            } else {
+                UIColor.white.setStroke()
+            }
+            path.lineWidth = 1
+            path.fill()
+            path.stroke()
+        }
+
+        let finalImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return finalImage
+    }
+
+    private func averageColor(baseImage: UIImage) -> UIColor? {
+        guard let cgImage = baseImage.cgImage else { return nil }
+        let width = 1, height = 1
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let rawData = UnsafeMutablePointer<UInt8>.allocate(capacity: 4)
+        defer { rawData.deallocate() }
+
+        guard let ctx = CGContext(data: rawData,
+                                  width: width,
+                                  height: height,
+                                  bitsPerComponent: 8,
+                                  bytesPerRow: 4,
+                                  space: colorSpace,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let r = CGFloat(rawData[0]) / 255.0
+        let g = CGFloat(rawData[1]) / 255.0
+        let b = CGFloat(rawData[2]) / 255.0
+        let a = CGFloat(rawData[3]) / 255.0
+        return UIColor(red: r, green: g, blue: b, alpha: a)
+    }
+}
+
+extension UIImage {
+    func rotate(radians: CGFloat) -> UIImage {
+        let newSize = CGRect(origin: .zero, size: self.size)
+            .applying(CGAffineTransform(rotationAngle: radians))
+            .integral.size
+        UIGraphicsBeginImageContextWithOptions(newSize, false, self.scale)
+        guard let context = UIGraphicsGetCurrentContext() else { return self }
+        let origin = CGPoint(x: newSize.width / 2, y: newSize.height / 2)
+        context.translateBy(x: origin.x, y: origin.y)
+        context.rotate(by: radians)
+        self.draw(in: CGRect(x: -self.size.width / 2,
+                             y: -self.size.height / 2,
+                             width: self.size.width,
+                             height: self.size.height))
+        let rotatedImage = UIGraphicsGetImageFromCurrentImageContext()!
+        UIGraphicsEndImageContext()
+        return rotatedImage
+    }
+
+    func resize(to targetSize: CGSize) -> UIImage? {
+        UIGraphicsBeginImageContextWithOptions(targetSize, false, 1.0)
+        self.draw(in: CGRect(origin: .zero, size: targetSize))
+        let newImg = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return newImg
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Models/MovieModel.swift
+========================================
+// ========================================
+// File: MovieModel.swift
+// ========================================
+import SwiftUI
+
+/// Modello per rappresentare un film/serie come appare nel CSV
+struct MovieModel: Identifiable, Equatable, Codable {
+    let id = UUID()
+
+    var title: String
+    var year: String
+    var rating: Int
+    var dateWatched: String
+    var isTV: Bool
+
+    var normalizedTitle: String {
+        return title
+            .folding(options: .diacriticInsensitive, locale: .current)
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "/", with: "_")
+            .lowercased()
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Models/PosterItem.swift
+========================================
+// ========================================
+// File: PosterItem.swift
+// ========================================
+import SwiftUI
+
+struct PosterItem: Identifiable, Equatable {
+    let id: UUID
+    let movie: MovieModel
+    var uiImage: UIImage?
+    let timestamp: Date
+    let imageFilename: String?
+
+    var image: Image {
+        guard let uiImage = uiImage else {
+            return Image(systemName: "photo")
+        }
+        return Image(uiImage: uiImage)
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Models/UserPreferences.swift
+========================================
+// ========================================
+// File: UserPreferences.swift
+// ========================================
+import SwiftUI
+
+struct UserPreferences: Codable {
+    var preferredLanguage: String
+
+    init(preferredLanguage: String = "none") {
+        self.preferredLanguage = preferredLanguage
+    }
+}
+
+class PreferencesManager: ObservableObject {
+    @Published var preferences: UserPreferences = UserPreferences()
+    private let preferencesKey = "PosterForgeUserPreferences"
+
+    init() {
+        loadPreferences()
+    }
+
+    func loadPreferences() {
+        guard let data = UserDefaults.standard.data(forKey: preferencesKey) else { return }
+        if let decoded = try? JSONDecoder().decode(UserPreferences.self, from: data) {
+            self.preferences = decoded
+        }
+    }
+
+    func savePreferences() {
+        if let encoded = try? JSONEncoder().encode(preferences) {
+            UserDefaults.standard.set(encoded, forKey: preferencesKey)
+        }
+    }
+
+    func resetPreferences() {
+        preferences = UserPreferences()
+        savePreferences()
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Views/CSVImportView.swift
+========================================
+// ========================================
+// File: CSVImportView.swift
+// ========================================
+import SwiftUI
+import UniformTypeIdentifiers
+
+struct CSVImportView: View {
+    @Environment(\.presentationMode) var presentationMode
+    @EnvironmentObject var preferencesManager: PreferencesManager
+    @ObservedObject var libraryVM: LibraryViewModel
+
+    @State private var showDocumentPicker = false
+    @State private var isProcessing = false
+    @State private var progressText = "Seleziona un CSV..."
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text(progressText)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .padding()
+
+                if !isProcessing {
+                    Button {
+                        print("[CSVImportView] L'utente ha cliccato su 'Scegli file CSV'")
+                        showDocumentPicker = true
+                    } label: {
+                        Text("Scegli file CSV")
+                            .font(.title3)
+                            .padding()
+                            .background(Color.blue.opacity(0.2))
+                            .cornerRadius(8)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Import CSV")
+            .navigationBarItems(leading: Button("Chiudi") {
+                presentationMode.wrappedValue.dismiss()
+            })
+            // Qui parte il fileImporter di SwiftUI
+            .fileImporter(
+                isPresented: $showDocumentPicker,
+                allowedContentTypes: [.commaSeparatedText, .plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                handleFileImport(result: result)
+            }
+        }
+    }
+
+    func handleFileImport(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else {
+                print("[CSVImportView] ERRORE: Nessun URL restituito dal picker.")
+                return
+            }
+            print("[CSVImportView] File selezionato con successo. URL:\(url)")
+            importCSV(from: url)
+
+        case .failure(let error):
+            print("[CSVImportView] ERRORE nella selezione file:", error)
+        }
+    }
+
+    func importCSV(from url: URL) {
+        isProcessing = true
+        progressText = "Caricamento CSV..."
+
+        // [DEBUG]
+        print("[CSVImportView] Avvio import da URL:", url)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                // ATTIVA L’ACCESSO “Security Scoped”
+                var isAccessing = false
+                if url.startAccessingSecurityScopedResource() {
+                    isAccessing = true
+                }
+                defer {
+                    if isAccessing {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
+                
+                print("[CSVImportView] Leggo il contenuto del file CSV in UTF-8 ...")
+                let csvString = try String(contentsOf: url, encoding: .utf8)
+                
+                // [DEBUG] Stampiamo un'anteprima del CSV
+                let shortPreview = csvString.prefix(200)
+                print("[CSVImportView] CSV caricato con successo. Anteprima:\n\(shortPreview)\n---")
+
+                // Chiediamo al parser di estrarre i film
+                print("[CSVImportView] Richiamo CSVParser...")
+                let movies = CSVParser.parseMovies(from: csvString)
+                print("[CSVImportView] CSVParser ha restituito \(movies.count) film.")
+                
+                if movies.isEmpty {
+                    DispatchQueue.main.async {
+                        self.progressText = "Nessun film trovato nel CSV (o CSV non valido)."
+                        self.isProcessing = false
+                    }
+                    print("[CSVImportView] Fine import: nessun film trovato.")
+                    return
+                }
+
+                DispatchQueue.main.async {
+                    self.progressText = "Trovati \(movies.count) elementi. Inizio generazione poster..."
+                }
+
+                let existingTitles = Set(self.libraryVM.posters.map { $0.movie.normalizedTitle })
+                let newMovies = movies.filter { !existingTitles.contains($0.normalizedTitle) }
+
+                let userPref = self.preferencesManager.preferences
+                var processedCount = 0
+
+                for movie in newMovies {
+                    var chosenPoster: UIImage?
+                    let yearInt: Int? = Int(movie.year).flatMap { $0 == 0 ? nil : $0 }
+
+                    // [DEBUG]
+                    print("[CSVImportView] Cerco su TMDb: title=\(movie.title), year=\(yearInt as Any), isTV=\(movie.isTV)")
+
+                    let group = DispatchGroup()
+                    group.enter()
+
+                    TMDbService.shared.search(query: movie.title, isTV: movie.isTV, year: yearInt) { results in
+                        if let firstResult = results.first {
+                            print("[CSVImportView] Trovato result su TMDb: \(firstResult)")
+
+                            TMDbService.shared.fetchPosters(
+                                itemID: firstResult.id,
+                                isTV: movie.isTV,
+                                languagePref: userPref.preferredLanguage
+                            ) { posterInfos in
+
+                                if posterInfos.isEmpty {
+                                    print("[CSVImportView] Nessun poster trovato su TMDb!")
+                                    group.leave()
+                                    return
+                                }
+                                let candidate = posterInfos.first!
+                                print("[CSVImportView] Poster selezionato: \(candidate.file_path)")
+
+                                TMDbService.shared.downloadPoster(path: candidate.file_path) { img in
+                                    if let img = img {
+                                        chosenPoster = img
+                                        print("[CSVImportView] Poster scaricato con successo.")
+                                    } else {
+                                        print("[CSVImportView] ERRORE: Poster non scaricato (nil).")
+                                    }
+                                    group.leave()
+                                }
+                            }
+                        } else {
+                            print("[CSVImportView] Nessun risultato su TMDb per: \(movie.title)")
+                            group.leave()
+                        }
+                    }
+
+                    group.wait()
+
+                    if let basePoster = chosenPoster {
+                        let posterItem = PosterItem(
+                            id: UUID(),
+                            movie: movie,
+                            uiImage: basePoster,
+                            timestamp: Date(),
+                            imageFilename: nil
+                        )
+                        DispatchQueue.main.async {
+                            self.libraryVM.addPoster(posterItem)
+                        }
+                    } else {
+                        print("[CSVImportView] Non ho un poster per '\(movie.title)', skip adding.")
+                    }
+
+                    processedCount += 1
+                    DispatchQueue.main.async {
+                        self.progressText = "Generati \(processedCount) / \(newMovies.count)"
+                    }
+                }
+
+                DispatchQueue.main.async {
+                    self.progressText = "Import completato!"
+                    self.isProcessing = false
+                }
+                print("[CSVImportView] Fine import con successo. Tot:", processedCount)
+
+            } catch {
+                // Se c'è un problema nella lettura del file
+                print("[CSVImportView] CATTURATA ECCEZIONE: \(error)")
+                DispatchQueue.main.async {
+                    self.progressText = "Errore lettura CSV"
+                    self.isProcessing = false
+                }
+            }
+        }
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Views/ContentView.swift
+========================================
+// ========================================
+// File: ContentView.swift
+// ========================================
+import SwiftUI
+
+struct ContentView: View {
+    @EnvironmentObject var preferencesManager: PreferencesManager
+    @StateObject var libraryVM = LibraryViewModel()
+
+    @State private var showSettings = false
+    @State private var showCSVImport = false
+    @State private var showSearch = false
+    @State private var showLibrary = false
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                LinearGradient(gradient: Gradient(colors: [.white, .blue.opacity(0.1)]),
+                               startPoint: .top,
+                               endPoint: .bottom)
+                    .edgesIgnoringSafeArea(.all)
+
+                VStack(spacing: 30) {
+                    Text("PosterForge")
+                        .font(.largeTitle)
+                        .fontWeight(.heavy)
+                        .foregroundColor(.blue)
+
+                    Text("Crea e gestisci i tuoi poster personalizzati")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Spacer().frame(height: 40)
+
+                    Button(action: {
+                        showCSVImport = true
+                    }) {
+                        Label("1) Carica CSV", systemImage: "tray.and.arrow.down")
+                            .font(.title3)
+                            .padding()
+                            .background(Color.blue.opacity(0.15))
+                            .cornerRadius(10)
+                    }
+
+                    Button(action: {
+                        showSearch = true
+                    }) {
+                        Label("2) Cerca un Film / Serie", systemImage: "magnifyingglass")
+                            .font(.title3)
+                            .padding()
+                            .background(Color.blue.opacity(0.15))
+                            .cornerRadius(10)
+                    }
+
+                    Button(action: {
+                        showLibrary = true
+                    }) {
+                        Label("3) Mostra Libreria", systemImage: "photo.tv")
+                            .font(.title3)
+                            .padding()
+                            .background(Color.blue.opacity(0.15))
+                            .cornerRadius(10)
+                    }
+
+                    Spacer()
+                }
+                .padding()
+                .navigationBarItems(trailing:
+                    Button(action: {
+                        showSettings = true
+                    }) {
+                        Image(systemName: "gearshape")
+                    }
+                )
+                .sheet(isPresented: $showSettings) {
+                    SettingsView()
+                        .environmentObject(preferencesManager)
+                }
+                .sheet(isPresented: $showCSVImport) {
+                    CSVImportView(libraryVM: libraryVM)
+                        .environmentObject(preferencesManager)
+                }
+                .sheet(isPresented: $showSearch) {
+                    SearchView(libraryVM: libraryVM)
+                        .environmentObject(preferencesManager)
+                }
+                .sheet(isPresented: $showLibrary) {
+                    LibraryView(libraryVM: libraryVM)
+                }
+            }
+            .onAppear {
+                // Se serve, gestisci un alert iniziale
+            }
+        }
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Views/LibraryView.swift
+========================================
+// ========================================
+// File: LibraryView.swift
+// ========================================
+import SwiftUI
+
+struct LibraryView: View {
+    @ObservedObject var libraryVM: LibraryViewModel
+    @Environment(\.presentationMode) var presentationMode
+
+    @State private var selectedPosterItem: PosterItem?
+    @State private var showingDetail = false
+
+    private let columns = [
+        GridItem(.flexible()),
+        GridItem(.flexible()),
+        GridItem(.flexible())
+    ]
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                if libraryVM.posters.isEmpty {
+                    Text("La tua libreria è vuota.\nImporta un CSV o cerca un film!")
+                        .multilineTextAlignment(.center)
+                        .padding()
+                } else {
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(libraryVM.posters) { poster in
+                            VStack {
+                                poster.image
+                                    .resizable()
+                                    .scaledToFit()
+                                    .cornerRadius(8)
+                                    .shadow(radius: 2)
+                                    .onTapGesture {
+                                        selectedPosterItem = poster
+                                        showingDetail = true
+                                    }
+                                Text("\(poster.movie.title) (\(poster.movie.year))")
+                                    .font(.caption)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 5)
+                            }
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("La mia Libreria")
+            .navigationBarItems(leading: Button("Chiudi") {
+                presentationMode.wrappedValue.dismiss()
+            })
+            .sheet(item: $selectedPosterItem) { item in
+                PosterDetailView(posterItem: item)
+                    .environmentObject(libraryVM) // Per eventuali modifiche
+            }
+        }
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Views/PosterDetailView.swift
+========================================
+// ========================================
+// File: PosterDetailView.swift
+// ========================================
+import SwiftUI
+import UIKit
+
+struct ActivityViewControllerWrapper: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let vc = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+        vc.excludedActivityTypes = []
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+struct PosterDetailView: View, Identifiable {
+    var id: UUID { posterItem.id }
+
+    let posterItem: PosterItem
+    @EnvironmentObject var libraryVM: LibraryViewModel
+
+    @State private var generatedPoster: UIImage?
+    @State private var showingShareSheet = false
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                posterItem.image
+                    .resizable()
+                    .scaledToFit()
+                    .padding()
+
+                Text(posterItem.movie.title)
+                    .font(.title)
+                    .fontWeight(.semibold)
+                Text("Anno: \(posterItem.movie.year)")
+                Text("Voto: \(posterItem.movie.rating)/10")
+                Text("Data visione: \(posterItem.movie.dateWatched)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Divider().padding()
+
+                if let g = generatedPoster {
+                    Text("Poster Elaborato:")
+                    Image(uiImage: g)
+                        .resizable()
+                        .scaledToFit()
+                        .padding()
+
+                    HStack {
+                        Button("Salva su Rullino") {
+                            // Richiede NSPhotoLibraryAddUsageDescription in Info.plist
+                            UIImageWriteToSavedPhotosAlbum(g, nil, nil, nil)
+                        }
+                        .padding(.trailing)
+
+                        Button("Condividi") {
+                            showingShareSheet = true
+                        }
+                        .sheet(isPresented: $showingShareSheet) {
+                            ActivityViewControllerWrapper(activityItems: [g])
+                        }
+                    }
+                }
+
+                Spacer()
+
+                HStack {
+                    Button("Crea Poster Tradizionale") {
+                        generatePoster(layout: "traditional")
+                    }
+                    .padding()
+
+                    Button("Crea Poster Moderno") {
+                        generatePoster(layout: "modern")
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Dettagli Poster")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+    }
+
+    private func generatePoster(layout: String) {
+        guard let baseImage = posterItem.uiImage else { return }
+        let newImg = PosterGenerator.shared.generatePoster(
+            baseImage: baseImage,
+            layout: layout,
+            movie: posterItem.movie
+        )
+        self.generatedPoster = newImg
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Views/SearchView.swift
+========================================
+// ========================================
+// File: SearchView.swift
+// ========================================
+import SwiftUI
+
+struct SearchView: View {
+    @ObservedObject var libraryVM: LibraryViewModel
+    @EnvironmentObject var preferencesManager: PreferencesManager
+    @Environment(\.presentationMode) var presentationMode
+
+    @State private var query = ""
+    @State private var isTV = false
+    @State private var results: [TMDbSearchResult] = []
+
+    @State private var selectedYear = ""
+    @State private var userRating = 5
+    @State private var dateWatched = ""
+
+    @State private var selectedItem: TMDbSearchResult?
+    @State private var posterImages: [UIImage] = []
+    @State private var chosenPoster: UIImage?
+
+    // 0: inserimento query
+    // 1: mostra risultati
+    // 2: mostra poster
+    // 3: completato
+    @State private var phase = 0
+
+    private let columns = [
+        GridItem(.flexible()),
+        GridItem(.flexible())
+    ]
+
+    var body: some View {
+        NavigationView {
+            Group {
+                if phase == 0 {
+                    phase0View()
+                } else if phase == 1 {
+                    phase1View()
+                } else if phase == 2 {
+                    phase2View()
+                } else {
+                    phase3View()
+                }
+            }
+            .navigationTitle("Cerca Film/Serie")
+            .navigationBarItems(leading: Button("Annulla") {
+                presentationMode.wrappedValue.dismiss()
+            })
+            .onAppear {
+                resetState()
+            }
+        }
+    }
+
+    // MARK: - Fase 0
+    private func phase0View() -> some View {
+        Form {
+            Section(header: Text("Dati Film/Serie")) {
+                TextField("Nome Film/Serie", text: $query)
+                Toggle("È una Serie TV?", isOn: $isTV)
+                TextField("Anno (opzionale)", text: $selectedYear)
+                    .keyboardType(.numberPad)
+            }
+
+            Section(header: Text("Tuoi dati/Rating")) {
+                Stepper("Voto (1-10): \(userRating)", value: $userRating, in: 1...10)
+                TextField("Data visione (AAAA-MM-GG)", text: $dateWatched)
+            }
+
+            Section {
+                Button("Cerca") {
+                    search()
+                }
+            }
+        }
+    }
+
+    // MARK: - Fase 1
+    private func phase1View() -> some View {
+        VStack {
+            if results.isEmpty {
+                Text("Nessun risultato trovato.")
+                    .padding()
+            } else {
+                List(results, id: \.id) { item in
+                    Button {
+                        // Quando l'utente seleziona un risultato, se non abbiamo specificato un anno manualmente
+                        // prendiamo l'anno dal "release_date" o "first_air_date"
+                        self.selectedItem = item
+                        let yearString = isTV ? (item.first_air_date ?? "") : (item.release_date ?? "")
+                        if yearString.count >= 4 && self.selectedYear.isEmpty {
+                            self.selectedYear = String(yearString.prefix(4))
+                        }
+
+                        fetchPosters(for: item)
+                    } label: {
+                        Text(displayTitle(for: item))
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Fase 2
+    private func phase2View() -> some View {
+        VStack {
+            Text("Scegli Poster")
+                .font(.headline)
+                .padding()
+
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(0 ..< posterImages.count, id: \.self) { i in
+                        Button(action: {
+                            self.chosenPoster = posterImages[i]
+                            generateFinalPoster()
+                        }) {
+                            Image(uiImage: posterImages[i])
+                                .resizable()
+                                .scaledToFit()
+                                .frame(minWidth: 0, maxWidth: .infinity)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding()
+            }
+        }
+    }
+
+    // MARK: - Fase 3
+    private func phase3View() -> some View {
+        VStack(spacing: 20) {
+            Text("Poster generato e aggiunto in libreria!")
+                .font(.title2)
+                .padding()
+            Button("Fine") {
+                presentationMode.wrappedValue.dismiss()
+            }
+            .padding()
+        }
+    }
+
+    // MARK: - Ricerca
+    func search() {
+        results = []
+        posterImages = []
+        chosenPoster = nil
+        phase = 1
+
+        let yearInt = Int(selectedYear)
+        TMDbService.shared.search(query: query, isTV: isTV, year: yearInt) { res in
+            self.results = res
+        }
+    }
+
+    // MARK: - Caricamento poster
+    func fetchPosters(for item: TMDbSearchResult) {
+        let userPref = preferencesManager.preferences
+        TMDbService.shared.fetchPosters(
+            itemID: item.id,
+            isTV: isTV,
+            languagePref: userPref.preferredLanguage
+        ) { posters in
+            let maxToShow = min(30, posters.count)
+            let subset = Array(posters.prefix(maxToShow))
+
+            self.posterImages = []
+            let group = DispatchGroup()
+
+            for p in subset {
+                group.enter()
+                TMDbService.shared.downloadPoster(path: p.file_path) { img in
+                    if let i = img {
+                        self.posterImages.append(i)
+                    }
+                    group.leave()
+                }
+            }
+
+            group.notify(queue: .main) {
+                self.phase = 2
+            }
+        }
+    }
+
+    // MARK: - Genera e salva locandina base
+    func generateFinalPoster() {
+        guard let base = chosenPoster else { return }
+        let movie = MovieModel(
+            title: query,
+            year: selectedYear,
+            rating: userRating,
+            dateWatched: dateWatched,
+            isTV: isTV
+        )
+        let item = PosterItem(
+            id: UUID(),
+            movie: movie,
+            uiImage: base,
+            timestamp: Date(),
+            imageFilename: nil
+        )
+        libraryVM.addPoster(item)
+        phase = 3
+    }
+
+    // MARK: - Helper
+    private func displayTitle(for item: TMDbSearchResult) -> String {
+        let title = isTV ? (item.name ?? "??") : (item.title ?? "??")
+        let yearString = isTV ? (item.first_air_date ?? "") : (item.release_date ?? "")
+        var finalYear = "????"
+        if yearString.count >= 4 {
+            finalYear = String(yearString.prefix(4))
+        }
+        return "\(title) (\(finalYear))"
+    }
+
+    private func resetState() {
+        query = ""
+        selectedYear = ""
+        userRating = 5
+        dateWatched = ""
+        phase = 0
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Views/SettingsView.swift
+========================================
+// ========================================
+// File: SettingsView.swift
+// ========================================
+import SwiftUI
+
+struct SettingsView: View {
+    @EnvironmentObject var preferencesManager: PreferencesManager
+    @Environment(\.presentationMode) var presentationMode
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Lingua preferita poster")) {
+                    Picker("Lingua", selection: $preferencesManager.preferences.preferredLanguage) {
+                        Text("No language").tag("none")
+                        Text("Italiano").tag("it")
+                        Text("Inglese").tag("en")
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                }
+
+                Section {
+                    Button("Salva e chiudi") {
+                        preferencesManager.savePreferences()
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+            .navigationTitle("Impostazioni")
+        }
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Services/CSVParser.swift
+========================================
+// ========================================
+// File: CSVParser.swift
+// ========================================
+import SwiftUI
+
+class CSVParser {
+    static func parseMovies(from csvContent: String) -> [MovieModel] {
+        var results: [MovieModel] = []
+        
+        // [DEBUG] Stampiamo la lunghezza del contenuto e magari le prime 200 battute
+        print("[CSVParser] Contenuto CSV length:", csvContent.count)
+        let previewStr = csvContent.prefix(200)
+        print("[CSVParser] Anteprima CSV:\n\(previewStr)\n---")
+        
+        // Separiamo in righe
+        let lines = csvContent.components(separatedBy: .newlines)
+        print("[CSVParser] Numero righe nel CSV:", lines.count)
+        
+        // Se c'è meno di 2 righe, è probabile che il CSV sia vuoto o malformato
+        guard lines.count > 1 else {
+            print("[CSVParser] ERRORE: Meno di 2 righe nel CSV; impossibile parse.")
+            return []
+        }
+        
+        // Leggiamo l'header (prima riga)
+        let headerLine = lines[0]
+        let header = headerLine.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+        print("[CSVParser] Header rilevato:", header)
+        
+        // Recuperiamo l'indice delle colonne
+        let titleIndex = header.firstIndex(of: "Original Title")
+        let yearIndex = header.firstIndex(of: "Year")
+        let ratingIndex = header.firstIndex(of: "Your Rating")
+        let dateIndex = header.firstIndex(of: "Date Rated")
+        let typeIndex = header.firstIndex(of: "Title Type")
+        
+        // Controlliamo che tutte le colonne ci siano
+        if titleIndex == nil || yearIndex == nil || ratingIndex == nil || dateIndex == nil || typeIndex == nil {
+            print("[CSVParser] ERRORE: Colonne richieste mancanti!")
+            print("[CSVParser] titleIndex:", titleIndex as Any,
+                  "yearIndex:", yearIndex as Any,
+                  "ratingIndex:", ratingIndex as Any,
+                  "dateIndex:", dateIndex as Any,
+                  "typeIndex:", typeIndex as Any)
+            return []
+        }
+        
+        // Passiamo ogni riga di dati (skip riga 0, che è l'header)
+        for (i, rawLine) in lines.enumerated() where i > 0 {
+            // Se la riga è vuota o contiene solo virgole, la saltiamo
+            if rawLine.trimmingCharacters(in: .whitespaces).isEmpty {
+                continue
+            }
+            
+            let line = rawLine.split(separator: ",", omittingEmptySubsequences: false)
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+            
+            // [DEBUG] Puoi decidere di stampare la riga se vuoi, occhio a CSV grandi
+            // print("[CSVParser] Riga \(i):", line)
+            
+            // A volte alcune righe potrebbero avere meno colonne del previsto
+            if line.count < header.count {
+                print("[CSVParser] Riga \(i) ha meno colonne del previsto (\(line.count)/\(header.count)). Skippata.")
+                continue
+            }
+            
+            // Forziamo il unwrap dei vari index (perché abbiamo già controllato)
+            let csvTitle = line[titleIndex!]
+            let csvYear  = line[yearIndex!]
+            let csvRating = line[ratingIndex!]
+            let csvDate   = line[dateIndex!]
+            let csvType   = line[typeIndex!].lowercased()
+            
+            let isTV = csvType.contains("tv")
+            let ratingInt = Int(csvRating) ?? 0
+            
+            // Creiamo il MovieModel
+            let movie = MovieModel(
+                title: csvTitle,
+                year: csvYear,
+                rating: ratingInt,
+                dateWatched: csvDate,
+                isTV: isTV
+            )
+            // [DEBUG]
+            print("[CSVParser] Creato MovieModel -> title=\(movie.title), year=\(movie.year), rating=\(movie.rating), isTV=\(movie.isTV)")
+            
+            results.append(movie)
+        }
+        
+        print("[CSVParser] TOT film trovati nel CSV:", results.count)
+        return results
+    }
+}
+
+
+========================================
+File: /Users/alexsiroli/Documents/Progetti/PosterForge/PosterForge/Services/TMDbService.swift
+========================================
+// ========================================
+// File: TMDbService.swift
+// ========================================
+import SwiftUI
+
+class TMDbService {
+    static let shared = TMDbService()
+
+    // Sostituisci con la tua vera API Key
+    private let apiKey = "8e7466051f04487c6a8248672c859497"
+
+    private let session = URLSession.shared
+
+    /// Ricerca un film (o serie TV) su TMDb
+    func search(query: String, isTV: Bool, year: Int? = nil, completion: @escaping ([TMDbSearchResult]) -> Void) {
+        let baseURL = "https://api.themoviedb.org/3/search/"
+        let endpoint = isTV ? "tv" : "movie"
+
+        var urlString = "\(baseURL)\(endpoint)?api_key=\(apiKey)&query=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+        if let y = year {
+            if isTV {
+                urlString += "&first_air_date_year=\(y)"
+            } else {
+                urlString += "&year=\(y)"
+            }
+        }
+        guard let url = URL(string: urlString) else {
+            DispatchQueue.main.async {
+                completion([])
+            }
+            return
+        }
+
+        session.dataTask(with: url) { data, response, error in
+            guard let data = data, error == nil else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            do {
+                let decoded = try JSONDecoder().decode(TMDbSearchResponse.self, from: data)
+                DispatchQueue.main.async {
+                    completion(decoded.results)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion([])
+                }
+            }
+        }.resume()
+    }
+
+    /// Ottiene la lista di poster di un film/serie
+    func fetchPosters(itemID: Int, isTV: Bool, languagePref: String? = nil, completion: @escaping ([TMDbImageInfo]) -> Void) {
+        let baseURL = "https://api.themoviedb.org/3/"
+        let endpoint = isTV ? "tv" : "movie"
+
+        var includeLangParam = ""
+        if let lp = languagePref {
+            switch lp {
+            case "none":
+                includeLangParam = "&include_image_language=null,it,en"
+            case "it":
+                includeLangParam = "&include_image_language=it,null,en"
+            case "en":
+                includeLangParam = "&include_image_language=en,null,it"
+            default:
+                break
+            }
+        }
+
+        let urlString = "\(baseURL)\(endpoint)/\(itemID)/images?api_key=\(apiKey)\(includeLangParam)"
+
+        guard let url = URL(string: urlString) else {
+            DispatchQueue.main.async {
+                completion([])
+            }
+            return
+        }
+
+        session.dataTask(with: url) { data, response, error in
+            guard let data = data, error == nil else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            do {
+                let decoded = try JSONDecoder().decode(TMDbImagesResponse.self, from: data)
+                let posters = decoded.posters
+                DispatchQueue.main.async {
+                    completion(posters)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion([])
+                }
+            }
+        }.resume()
+    }
+
+    /// Scarica un'immagine da TMDb
+    func downloadPoster(path: String, completion: @escaping (UIImage?) -> Void) {
+        let urlString = "https://image.tmdb.org/t/p/original\(path)"
+        guard let url = URL(string: urlString) else {
+            DispatchQueue.main.async {
+                completion(nil)
+            }
+            return
+        }
+
+        session.dataTask(with: url) { data, response, error in
+            guard let data = data, error == nil, let img = UIImage(data: data) else {
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                completion(img)
+            }
+        }.resume()
+    }
+}
+
+// MARK: - TMDb Response Models
+struct TMDbSearchResponse: Codable {
+    let results: [TMDbSearchResult]
+}
+
+struct TMDbSearchResult: Codable {
+    let id: Int
+    let name: String?       // per le serie
+    let title: String?      // per i film
+    let first_air_date: String?
+    let release_date: String?
+}
+
+struct TMDbImagesResponse: Codable {
+    let posters: [TMDbImageInfo]
+}
+
+struct TMDbImageInfo: Codable {
+    let file_path: String
+    let width: Int
+    let height: Int
+}

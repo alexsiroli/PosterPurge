@@ -1,17 +1,16 @@
-//
-//  PosterForgeApp.swift
-//  PosterForge
-//
-//  Created by Alex Siroli on 28/02/25.
-//
-
+// ========================================
+// File: PosterForgeApp.swift
+// ========================================
 import SwiftUI
 
 @main
 struct PosterForgeApp: App {
+    @StateObject var preferencesManager = PreferencesManager()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(preferencesManager)
         }
     }
 }
